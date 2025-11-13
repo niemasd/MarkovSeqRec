@@ -1,11 +1,13 @@
 #! /usr/bin/env python3
 '''
 Build a Markov chain from sequential interaction data
+Use a prebuilt Markov chain to recommend products to users from sequential interaction data
 '''
 
 # imports
 from csv import reader, Sniffer
 from gzip import open as gopen
+from json import dump as jdump
 from niemarkov import MarkovChain
 from pathlib import Path
 import argparse
@@ -17,37 +19,35 @@ DEFAULT_BUFSIZE = 1048576 # 1 MB
 def parse_args():
     # parse args
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-m', '--markov', required=True, type=str, help="Input Markov Chain File (Pickle)")
     parser.add_argument('-i', '--input', required=True, type=str, help="Input Interaction Data File (CSV/TSV)")
     parser.add_argument('-cu', '--column_user', required=True, type=str, help="Input Column Name: User")
     parser.add_argument('-ci', '--column_item', required=True, type=str, help="Input Column Name: Item")
     parser.add_argument('-ct', '--column_time', required=True, type=str, help="Input Column Name: Time")
-    parser.add_argument('-o', '--output', required=True, type=str, help="Output Markov Chain File (Pickle)")
-    parser.add_argument('-t', '--threshold', required=False, type=float, default=float('inf'), help="Session Delta Time Threshold")
-    parser.add_argument('-m', '--markov_order', required=False, type=int, default=1, help="Markov Chain Order")
+    parser.add_argument('-n', '--num_recs', required=False, type=int, default=None, help="Number of Recommendations/User")
+    parser.add_argument('-o', '--output', required=True, type=str, help="Output Recommendations File (JSON)")
     parser.add_argument('-q', '--quiet', action="store_true", help="Suppress Log Output")
     args = parser.parse_args()
 
     # check args for validity and return
-    ## -i / --input
+    ## -m / --markov and -i / --input
+    args.markov = Path(args.markov)
     args.input = Path(args.input)
-    if not args.input.is_file():
-        raise ValueError("File not found: %s" % args.input)
+    for p in [args.markov, args.input]:
+        if not p.is_file():
+            raise ValueError("File not found: %s" % p)
     ## -c* / --column_*
     for k in ['column_user', 'column_item', 'column_time']:
         v = getattr(args, k).strip()
         if len(v) == 0:
             raise ValueError("Argument '%s' cannot be empty" % k)
         setattr(args, k, v)
+    if args.num_recs < 1:
+        raise ValueError("Number of recommendations must be positive: %s" % args.num_recs)
     ## -o / --output
     args.output = Path(args.output)
     if args.output.exists():
         raise ValueError("File exists: %s" % args.output)
-    ## -t / --threshold
-    if args.threshold <= 0:
-        raise ValueError("Session delta time threshold must be positive: %s" % args.threshold)
-    ## -m / --markov_order
-    if args.markov_order < 1:
-        raise ValueError("Markov chain order must be positive: %s" % args.markov_order)
     ## return
     return args
 
@@ -91,35 +91,34 @@ def load_interactions(p, column_user, column_item, column_time):
         vals.sort() # sort interactions chronologically
     return data
 
-# build a Markov chain from loaded interactio data using NieMarkov
-def build_niemarkov(data, markov_order=1, threshold=float('inf')):
-    mc = MarkovChain(order=markov_order)
-    for user_inspections_list in data.values():
-        split_inds = [0]
-        for i in range(1, len(user_inspections_list)):
-            if (user_inspections_list[i][0] - user_inspections_list[i-1][0]) > threshold:
-                split_inds.append(i)
-        split_inds.append(len(user_inspections_list))
-        for i in range(len(split_inds)-1):
-            path_start = split_inds[i]
-            path_end = split_inds[i+1]
-            if (path_end - path_start) > markov_order:
-                mc.add_path([user_inspections_list[path_ind][1] for path_ind in range(path_start, path_end)])
-    return mc
+# produce recommendations for all users
+def recommend(mc, data, num_recs=None):
+    recs = {user:None for user in data}
+    raise NotImplementedError("TODO RECOMMEND") # TODO
+    return recs
 
 # program execution
 if __name__ == '__main__':
     args = parse_args()
     if not args.quiet:
+        print("Loading Markov chain from file: %s ..." % args.markov, end=' ')
+    mc = MarkovChain.load(args.markov)
+    if not args.quiet:
+        print("done")
         print("Loading interaction data from: %s ..." % args.input, end=' ')
     data = load_interactions(args.input, args.column_user, args.column_item, args.column_time)
     if not args.quiet:
         print("done")
-        print("Building %d-order Markov chain..." % args.markov_order, end=' ')
-    mc = build_niemarkov(data, markov_order=args.markov_order, threshold=args.threshold)
+        print("Producing recommendations...", end=' ')
+    recs = recommend(mc, data, num_recs=args.num_recs)
     if not args.quiet:
         print("done")
-        print("Saving Markov chain to file: %s ..." % args.output, end=' ')
-    mc.dump(args.output)
+        print("Saving recommendations to file: %s ..." % args.output, end=' ')
+    if args.output.suffix.lower() == 'gz':
+        f = gopen(args.output, 'wt')
+    else:
+        f = open(args.output, 'wt')
+    jdump(recs, f)
+    f.close()
     if not args.quiet:
         print("done")

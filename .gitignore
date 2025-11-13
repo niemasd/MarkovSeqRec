@@ -1,4 +1,6 @@
 # MarkovSeqRec files
+*.json
+*.json.gz
 *.pkl
 *.pkl.gz
 
