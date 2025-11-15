@@ -8,8 +8,9 @@ Use a prebuilt Markov chain to recommend products to users from sequential inter
 from csv import reader, Sniffer
 from gzip import open as gopen
 from json import dump as jdump
-from niemarkov import MarkovChain
+from niemarkov import MarkovChain, random_choice
 from pathlib import Path
+from random import choice
 import argparse
 
 # constants
@@ -91,11 +92,32 @@ def load_interactions(p, column_user, column_item, column_time):
         vals.sort() # sort interactions chronologically
     return data
 
+# get a recommendation from a specific node
+def get_recommendation(final_items, mc, item_dists=None):
+    try:
+        final_node = tuple([None]*(mc.order-len(final_items)) + [mc.label_to_state[item] for item in final_items])
+        transitions = mc[final_node]
+    except:
+        transitions = dict()
+    if len(transitions) == 0: # no transitions, so find most similar node with transitions
+        node_dists = dict()
+        for v in mc.transitions: # only check nodes with transitions
+            if item_dists is None:
+                v_dist = sum(1 for i in range(len(v)) if final_items[i] != mc.labels[v[i]])
+            else:
+                raise NotImplementedError("TODO GET TRANSITIONS OF CLOSEST NODE USING ITEM DISTS")
+            if v_dist not in node_dists:
+                node_dists[v_dist] = list()
+            node_dists[v_dist].append(v)
+        final_node = choice(node_dists[min(node_dists.keys())])
+        transitions = mc[final_node]
+    if final_node in transitions:
+        del transitions[final_node]
+    return mc.labels[random_choice(transitions)[-1]]
+
 # produce recommendations for all users
-def recommend(mc, data, num_recs=None):
-    recs = {user:None for user in data}
-    raise NotImplementedError("TODO RECOMMEND") # TODO
-    return recs
+def recommend(mc, data, num_recs=None, item_dists=None):
+    return {user:get_recommendation([item for t, item in inspections[-mc.order:]], mc, item_dists=item_dists) for user, inspections in data.items()}
 
 # program execution
 if __name__ == '__main__':
@@ -110,7 +132,8 @@ if __name__ == '__main__':
     if not args.quiet:
         print("done")
         print("Producing recommendations...", end=' ')
-    recs = recommend(mc, data, num_recs=args.num_recs)
+    item_dists = None # TODO CALCULATE PAIRWISE ITEM DISTANCES IF ITEM DETAILS ARE GIVEN
+    recs = recommend(mc, data, num_recs=args.num_recs, item_dists=item_dists)
     if not args.quiet:
         print("done")
         print("Saving recommendations to file: %s ..." % args.output, end=' ')
