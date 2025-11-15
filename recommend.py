@@ -25,7 +25,6 @@ def parse_args():
     parser.add_argument('-cu', '--column_user', required=True, type=str, help="Input Column Name: User")
     parser.add_argument('-ci', '--column_item', required=True, type=str, help="Input Column Name: Item")
     parser.add_argument('-ct', '--column_time', required=True, type=str, help="Input Column Name: Time")
-    parser.add_argument('-n', '--num_recs', required=False, type=int, default=None, help="Number of Recommendations/User")
     parser.add_argument('-o', '--output', required=True, type=str, help="Output Recommendations File (JSON)")
     parser.add_argument('-q', '--quiet', action="store_true", help="Suppress Log Output")
     args = parser.parse_args()
@@ -43,8 +42,6 @@ def parse_args():
         if len(v) == 0:
             raise ValueError("Argument '%s' cannot be empty" % k)
         setattr(args, k, v)
-    if args.num_recs < 1:
-        raise ValueError("Number of recommendations must be positive: %s" % args.num_recs)
     ## -o / --output
     args.output = Path(args.output)
     if args.output.exists():
@@ -116,7 +113,7 @@ def get_recommendation(final_items, mc, item_dists=None):
     return mc.labels[random_choice(transitions)[-1]]
 
 # produce recommendations for all users
-def recommend(mc, data, num_recs=None, item_dists=None):
+def recommend(mc, data, item_dists=None):
     return {user:get_recommendation([item for t, item in inspections[-mc.order:]], mc, item_dists=item_dists) for user, inspections in data.items()}
 
 # program execution
@@ -133,7 +130,7 @@ if __name__ == '__main__':
         print("done")
         print("Producing recommendations...", end=' ')
     item_dists = None # TODO CALCULATE PAIRWISE ITEM DISTANCES IF ITEM DETAILS ARE GIVEN
-    recs = recommend(mc, data, num_recs=args.num_recs, item_dists=item_dists)
+    recs = recommend(mc, data, item_dists=item_dists)
     if not args.quiet:
         print("done")
         print("Saving recommendations to file: %s ..." % args.output, end=' ')
