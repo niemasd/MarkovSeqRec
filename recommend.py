@@ -10,6 +10,7 @@ from gzip import open as gopen
 from json import dump as jdump
 from niemarkov import MarkovChain, random_choice
 from pathlib import Path
+from pandas import read_csv
 from random import choice
 import argparse
 
@@ -22,6 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-m', '--markov', required=True, type=str, help="Input Markov Chain File (Pickle)")
     parser.add_argument('-i', '--input', required=True, type=str, help="Input Interaction Data File (CSV/TSV)")
+    parser.add_argument('-d', '--item_details', required=True, type=str, help="Input Item Details File (CSV/TSV)")
     parser.add_argument('-cu', '--column_user', required=True, type=str, help="Input Column Name: User")
     parser.add_argument('-ci', '--column_item', required=True, type=str, help="Input Column Name: Item")
     parser.add_argument('-ct', '--column_time', required=True, type=str, help="Input Column Name: Time")
@@ -30,10 +32,11 @@ def parse_args():
     args = parser.parse_args()
 
     # check args for validity and return
-    ## -m / --markov and -i / --input
+    ## -m / --markov and -i / --input and -d / --item_details
     args.markov = Path(args.markov)
     args.input = Path(args.input)
-    for p in [args.markov, args.input]:
+    args.item_details = Path(args.item_details)
+    for p in [args.markov, args.input, args.item_details]:
         if not p.is_file():
             raise ValueError("File not found: %s" % p)
     ## -c* / --column_*
@@ -89,32 +92,45 @@ def load_interactions(p, column_user, column_item, column_time):
         vals.sort() # sort interactions chronologically
     return data
 
-# get a recommendation from a specific node
-def get_recommendation(final_items, mc, item_dists=None):
-    try:
-        final_node = tuple([None]*(mc.order-len(final_items)) + [mc.label_to_state[item] for item in final_items])
-        transitions = mc[final_node]
-    except:
-        transitions = dict()
-    if len(transitions) == 0: # no transitions, so find most similar node with transitions
-        node_dists = dict()
-        for v in mc.transitions: # only check nodes with transitions
-            if item_dists is None:
-                v_dist = sum(1 for i in range(len(v)) if final_items[i] != mc.labels[v[i]])
-            else:
-                raise NotImplementedError("TODO GET TRANSITIONS OF CLOSEST NODE USING ITEM DISTS")
-            if v_dist not in node_dists:
-                node_dists[v_dist] = list()
-            node_dists[v_dist].append(v)
-        final_node = choice(node_dists[min(node_dists.keys())])
-        transitions = mc[final_node]
-    if final_node in transitions:
-        del transitions[final_node]
-    return mc.labels[random_choice(transitions)[-1]]
+# load data from item details CSV/TSV
+def load_item_details(p, column_item):
+    # open file
+    if p.suffix.lower() == 'gz':
+        f = gopen(p, mode='rt')
+    else:
+        f = open(p, mode='rt', buffering=DEFAULT_BUFSIZE)
+
+    # load data
+    delim = Sniffer().sniff(f.read(DEFAULT_BUFSIZE)).delimiter
+    f.seek(0)
+    df = read_csv(f, delimiter=delim)
+    f.close()
+    return df
 
 # produce recommendations for all users
-def recommend(mc, data, item_dists=None):
-    return {user:get_recommendation([item for t, item in inspections[-mc.order:]], mc, item_dists=item_dists) for user, inspections in data.items()}
+def recommend(mc, data, item_details):
+    print(item_details); exit() # TODO OUTPUT ORDERED LIST OF ALL ITEMS
+    recs = dict()
+    for user, inspections in data.items():
+        final_items = [item for t, item in inspections[-mc.order:]]
+        try:
+            final_node = tuple([None]*(mc.order-len(final_items)) + [mc.label_to_state[item] for item in final_items])
+            transitions = mc[final_node]
+        except:
+            transitions = dict()
+        if len(transitions) == 0: # no transitions, so find most similar node with transitions
+            node_dists = dict()
+            for v in mc.transitions: # only check nodes with transitions
+                v_dist = sum(1 for i in range(len(v)) if final_items[i] != mc.labels[v[i]])
+                if v_dist not in node_dists:
+                    node_dists[v_dist] = list()
+                node_dists[v_dist].append(v)
+            final_node = choice(node_dists[min(node_dists.keys())])
+            transitions = mc[final_node]
+        if final_node in transitions:
+            del transitions[final_node]
+        recs[user] = mc.labels[random_choice(transitions)[-1]]
+    return recs
 
 # program execution
 if __name__ == '__main__':
@@ -128,9 +144,12 @@ if __name__ == '__main__':
     data = load_interactions(args.input, args.column_user, args.column_item, args.column_time)
     if not args.quiet:
         print("done")
+        print("Loading item details from: %s ..." % args.item_details, end=' ')
+    item_details = load_item_details(args.item_details, args.column_item) # TODO
+    if not args.quiet:
+        print("done")
         print("Producing recommendations...", end=' ')
-    item_dists = None # TODO CALCULATE PAIRWISE ITEM DISTANCES IF ITEM DETAILS ARE GIVEN
-    recs = recommend(mc, data, item_dists=item_dists)
+    recs = recommend(mc, data, item_details)
     if not args.quiet:
         print("done")
         print("Saving recommendations to file: %s ..." % args.output, end=' ')
