@@ -27,8 +27,9 @@ def parse_args():
     parser.add_argument('-cu', '--column_user', required=True, type=str, help="Input Column Name: User")
     parser.add_argument('-ci', '--column_item', required=True, type=str, help="Input Column Name: Item")
     parser.add_argument('-ct', '--column_time', required=True, type=str, help="Input Column Name: Time")
+    parser.add_argument('-n', '--num_recs', required=True, type=int, help="Number of Recommendations")
     parser.add_argument('-o', '--output', required=True, type=str, help="Output Recommendations File (JSON)")
-    parser.add_argument('-q', '--quiet', action="store_true", help="Suppress Log Output")
+    parser.add_argument('--no_pseudocount', action="store_true", help="Don't Add Pseudocounts")
     args = parser.parse_args()
 
     # check args for validity and return
@@ -45,6 +46,9 @@ def parse_args():
         if len(v) == 0:
             raise ValueError("Argument '%s' cannot be empty" % k)
         setattr(args, k, v)
+    ## -n / --num_recs
+    if args.num_recs < 0:
+        raise ValueError("Number of recommendations must be positive: %s" % args.num_recs)
     ## -o / --output
     args.output = Path(args.output)
     if args.output.exists():
@@ -108,17 +112,18 @@ def load_item_details(p, column_item):
     return df
 
 # produce recommendations for all users
-def recommend(mc, data, item_details):
-    print(item_details); exit() # TODO OUTPUT ORDERED LIST OF ALL ITEMS
+def recommend(mc, data, item_details, num_recs):
+    # create initial recommendations by Markov chain random walk
     recs = dict()
     for user, inspections in data.items():
+        # find final node for this user
         final_items = [item for t, item in inspections[-mc.order:]]
         try:
             final_node = tuple([None]*(mc.order-len(final_items)) + [mc.label_to_state[item] for item in final_items])
-            transitions = mc[final_node]
+            mc.get_label(final_node)
         except:
-            transitions = dict()
-        if len(transitions) == 0: # no transitions, so find most similar node with transitions
+            final_node = None
+        if final_node: # find most similar node with transitions
             node_dists = dict()
             for v in mc.transitions: # only check nodes with transitions
                 v_dist = sum(1 for i in range(len(v)) if final_items[i] != mc.labels[v[i]])
@@ -126,38 +131,43 @@ def recommend(mc, data, item_details):
                     node_dists[v_dist] = list()
                 node_dists[v_dist].append(v)
             final_node = choice(node_dists[min(node_dists.keys())])
-            transitions = mc[final_node]
-        if final_node in transitions:
-            del transitions[final_node]
-        recs[user] = mc.labels[random_choice(transitions)[-1]]
+
+        # get recommendations from random walk
+        curr_recs_set = set(); curr_recs_list = list()
+        for curr_node in mc.random_walk(final_node, start_is_node=True):
+            if len(curr_recs_set) == num_recs:
+                break
+            next_item = mc.labels[curr_node[-1]]
+            if next_item not in curr_recs_set:
+                curr_recs_set.add(next_item)
+                curr_recs_list.append(next_item)
+        recs[user] = curr_recs_list
     return recs
 
 # program execution
 if __name__ == '__main__':
     args = parse_args()
-    if not args.quiet:
-        print("Loading Markov chain from file: %s ..." % args.markov, end=' ')
+    print("Loading Markov chain from file: %s ..." % args.markov, end=' ')
     mc = MarkovChain.load(args.markov)
-    if not args.quiet:
+    print("done")
+    if not args.no_pseudocount:
+        print("Adding pseudocounts to Markov chain...", end=' ')
+        mc.add_pseudocount()
         print("done")
-        print("Loading interaction data from: %s ..." % args.input, end=' ')
+    print("Loading interaction data from: %s ..." % args.input, end=' ')
     data = load_interactions(args.input, args.column_user, args.column_item, args.column_time)
-    if not args.quiet:
-        print("done")
-        print("Loading item details from: %s ..." % args.item_details, end=' ')
+    print("done")
+    print("Loading item details from: %s ..." % args.item_details, end=' ')
     item_details = load_item_details(args.item_details, args.column_item) # TODO
-    if not args.quiet:
-        print("done")
-        print("Producing recommendations...", end=' ')
-    recs = recommend(mc, data, item_details)
-    if not args.quiet:
-        print("done")
-        print("Saving recommendations to file: %s ..." % args.output, end=' ')
+    print("done")
+    print("Producing recommendations...", end=' ')
+    recs = recommend(mc, data, item_details, args.num_recs)
+    print("done")
+    print("Saving recommendations to file: %s ..." % args.output, end=' ')
     if args.output.suffix.lower() == 'gz':
         f = gopen(args.output, 'wt')
     else:
         f = open(args.output, 'wt')
     jdump(recs, f)
     f.close()
-    if not args.quiet:
-        print("done")
+    print("done")
