@@ -8,10 +8,15 @@ from csv import reader, Sniffer
 from gzip import open as gopen
 from niemarkov import MarkovChain
 from pathlib import Path
+from sys import stdout
 import argparse
 
 # constants
 DEFAULT_BUFSIZE = 1048576 # 1 MB
+
+# print log message
+def print_log(s, end='\n', f=stdout):
+    print(s, end=end, file=f); f.flush()
 
 # parse + check user args
 def parse_args():
@@ -54,7 +59,7 @@ def parse_args():
 # load data from input interaction CSV/TSV
 def load_interactions(p, column_user, column_item, column_time):
     # open file
-    if p.suffix.lower() == 'gz':
+    if p.suffix.lower() == '.gz':
         f = gopen(p, mode='rt')
     else:
         f = open(p, mode='rt', buffering=DEFAULT_BUFSIZE)
@@ -69,18 +74,16 @@ def load_interactions(p, column_user, column_item, column_time):
             col2ind = {col:ind for ind, col in enumerate(row_stripped)}
             ind_user, ind_item, ind_time = (col2ind[col] for col in (column_user, column_item, column_time))
         else:
-            user_item_time = [row_stripped[ind] for ind in (ind_user, ind_item, ind_time)]
-            for i in range(3):
+            curr_user = row_stripped[ind_user]
+            curr_item = row_stripped[ind_item]
+            curr_time = row_stripped[ind_time]
+            try:
+                curr_time = int(curr_time)
+            except:
                 try:
-                    user_item_time[i] = int(user_item_time[i])
+                    curr_time = float(curr_time)
                 except:
-                    try:
-                        user_item_time[i] = float(user_item_time[i])
-                    except:
-                        pass
-            curr_user, curr_item, curr_time = user_item_time
-            if type(curr_time) not in {float, int}:
-                raise ValueError("Time must be a number: %s" % curr_time)
+                    raise ValueError("Time must be a number: %s" % curr_time)
             if curr_user not in data:
                 data[curr_user] = list()
             data[curr_user].append((curr_time, curr_item))
@@ -111,15 +114,15 @@ def build_niemarkov(data, markov_order=1, threshold=float('inf')):
 if __name__ == '__main__':
     args = parse_args()
     if not args.quiet:
-        print("Loading interaction data from: %s ..." % args.input, end=' ')
+        print_log("Loading interaction data from: %s ..." % args.input, end=' ')
     data = load_interactions(args.input, args.column_user, args.column_item, args.column_time)
     if not args.quiet:
-        print("done")
-        print("Building %d-order Markov chain..." % args.markov_order, end=' ')
+        print_log("done")
+        print_log("Building %d-order Markov chain..." % args.markov_order, end=' ')
     mc = build_niemarkov(data, markov_order=args.markov_order, threshold=args.threshold)
     if not args.quiet:
-        print("done")
-        print("Saving Markov chain to file: %s ..." % args.output, end=' ')
+        print_log("done")
+        print_log("Saving Markov chain to file: %s ..." % args.output, end=' ')
     mc.dump(args.output)
     if not args.quiet:
-        print("done")
+        print_log("done")

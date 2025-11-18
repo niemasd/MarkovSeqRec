@@ -6,3 +6,6 @@ First, use [`build.py`](build.py) to build a Markov chain from an input CSV/TSV 
 
 ## [`recommend.py`](recommend.py) — Recommend Items
 Next, use [`recommend.py`](recommend.py) to recommend items for users.
+
+## [`evaluate.py`](evaluate.py) — Evaluate Recommendation
+Last, use [`evaluate.py`](evaluate.py) to evaluate how well the recommendation performed.

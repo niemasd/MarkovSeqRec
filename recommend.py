@@ -11,11 +11,16 @@ from json import dump as jdump
 from niemarkov import MarkovChain, random_choice
 from pathlib import Path
 from random import choice, shuffle
+from sys import stdout
 import argparse
 
 # constants
 DEFAULT_BUFSIZE = 1048576 # 1 MB
 DEFAULT_NUM_STEPS = 1000
+
+# print log message
+def print_log(s, end='\n', f=stdout):
+    print(s, end=end, file=f); f.flush()
 
 # parse + check user args
 def parse_args():
@@ -75,18 +80,16 @@ def load_interactions(p, column_user, column_item, column_time):
             col2ind = {col:ind for ind, col in enumerate(row_stripped)}
             ind_user, ind_item, ind_time = (col2ind[col] for col in (column_user, column_item, column_time))
         else:
-            user_item_time = [row_stripped[ind] for ind in (ind_user, ind_item, ind_time)]
-            for i in range(3):
+            curr_user = row_stripped[ind_user]
+            curr_item = row_stripped[ind_item]
+            curr_time = row_stripped[ind_time]
+            try:
+                curr_time = int(curr_time)
+            except:
                 try:
-                    user_item_time[i] = int(user_item_time[i])
+                    curr_time = float(curr_time)
                 except:
-                    try:
-                        user_item_time[i] = float(user_item_time[i])
-                    except:
-                        pass
-            curr_user, curr_item, curr_time = user_item_time
-            if type(curr_time) not in {float, int}:
-                raise ValueError("Time must be a number: %s" % curr_time)
+                    raise ValueError("Time must be a number: %s" % curr_time)
             if curr_user not in data:
                 data[curr_user] = list()
             data[curr_user].append((curr_time, curr_item))
@@ -171,27 +174,27 @@ def recommend(mc, data, item_details, num_recs, num_steps=DEFAULT_NUM_STEPS):
 # program execution
 if __name__ == '__main__':
     args = parse_args()
-    print("Loading Markov chain from file: %s ..." % args.markov, end=' ')
+    print_log("Loading Markov chain from file: %s ..." % args.markov, end=' ')
     mc = MarkovChain.load(args.markov)
-    print("done")
+    print_log("done")
     if not args.no_pseudocount:
-        print("Adding pseudocounts to Markov chain...", end=' ')
+        print_log("Adding pseudocounts to Markov chain...", end=' ')
         mc.add_pseudocount()
-        print("done")
-    print("Loading interaction data from: %s ..." % args.input, end=' ')
+        print_log("done")
+    print_log("Loading interaction data from: %s ..." % args.input, end=' ')
     data = load_interactions(args.input, args.column_user, args.column_item, args.column_time)
-    print("done")
-    print("Loading item details from: %s ..." % args.item_details, end=' ')
+    print_log("done")
+    print_log("Loading item details from: %s ..." % args.item_details, end=' ')
     item_details = load_item_details(args.item_details, args.column_item)
-    print("done")
-    print("Producing recommendations...", end=' ')
+    print_log("done")
+    print_log("Producing recommendations...", end=' ')
     recs = recommend(mc, data, item_details, args.num_recs)
-    print("done")
-    print("Saving recommendations to file: %s ..." % args.output, end=' ')
+    print_log("done")
+    print_log("Saving recommendations to file: %s ..." % args.output, end=' ')
     if args.output.suffix.lower() == 'gz':
         f = gopen(args.output, 'wt')
     else:
         f = open(args.output, 'wt')
     jdump(recs, f)
     f.close()
-    print("done")
+    print_log("done")
