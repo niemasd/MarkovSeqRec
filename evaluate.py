@@ -9,6 +9,7 @@ from csv import reader, Sniffer
 from gzip import open as gopen
 from json import load as jload
 from pathlib import Path
+from scipy.stats import kendalltau
 from sys import stdout
 import argparse
 
@@ -75,6 +76,19 @@ def load_purchases(p, column_user, column_item):
             data[curr_user].add(curr_item)
     return data
 
+# evaluate recommendations using Kendall's tau-b
+def evaluate(recs, purchases):
+    evals = dict() # evals[user] = (number of recommendations purchased, max possible number of recommendations purchased)
+    for user, user_recs in recs.items():
+        try:
+            user_purchases = purchases[user]
+        except KeyError:
+            continue # skip users who didn't buy anything
+        num_recs_purchased = sum(1 for item in user_recs if item in user_purchases)
+        optimal_num_recs_purchased = min(len(user_purchases), len(user_recs))
+        evals[user] = (num_recs_purchased, optimal_num_recs_purchased)
+    return evals
+
 # program execution
 if __name__ == '__main__':
     args = parse_args()
@@ -86,18 +100,18 @@ if __name__ == '__main__':
     recs = jload(f)
     f.close()
     print_log("Loading purchase data from: %s ..." % args.purchases, end=' ')
-    data = load_purchases(args.purchases, args.column_user, args.column_item)
+    purchases = load_purchases(args.purchases, args.column_user, args.column_item)
     print_log("done")
     print_log("Evaluating recommendations...", end=' ')
-    raise NotImplementedError("TODO EVALUATE RECOMMENDATIONS")
+    evals = evaluate(recs, purchases)
     print_log("done")
     print_log("Saving evaluations to file: %s ..." % args.output, end=' ')
     if args.output.suffix.lower() == 'gz':
         f = gopen(args.output, 'wt')
     else:
         f = open(args.output, 'wt')
-    f.write('User\tScore\n')
-    for user_score in evals.items():
-        f.write('%s\t%s\n' % user_score)
+    f.write('User\t# Recs Purchased\tOptimal # Recs Purchased\n')
+    for user, user_eval in evals.items():
+        f.write('%s\t%s\t%s\n' % (user, user_eval[0], user_eval[1]))
     f.close()
     print_log("done")
